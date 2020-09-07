@@ -1,0 +1,117 @@
+#!/bin/bash
+# Original code provided by SolwarWinds
+# Patched for ArchLinux by Sean Snell <ssnell at cmhsol dot com>
+
+USR_PROFILE="/home/$USER/.profile"
+LOCAL_XDG_DIR="mspa"
+LOCAL_XDG_OVERRIDE="MSPAnywhere"
+
+echo "Setting up protocol handler..."
+# exec_viewer="/opt/takecontrol/start_viewer.sh \"%u\""
+exec_viewer="/usr/bin/takecontrol/start_viewer.sh \"%u\""
+
+
+# Variables for both products to be used in shared local xdg-open
+NC_PROTONAME="mspancsxvp"
+TC_PROTONAME="takectrsxvp"
+NC_exec_viewer="/usr/bin/ncentral/start_viewer.sh"
+TC_exec_viewer="/usr/bin/takecontrol/start_viewer.sh"
+
+############# Patching xdg-open for each user ###################
+if [ x"$1" == x"KDE_PATCH" ]; then
+    # adding local path so xdg-open would start local takecontrol script handler (if not yet there)
+    local_xdg_path="/home/$USER/.${LOCAL_XDG_DIR}/bin"
+    add_to_path="if echo \"\$PATH\" | grep -vq '"$local_xdg_path"'; then export PATH=$local_xdg_path:\$PATH;  fi;"
+    [[ -f $USR_PROFILE ]] || touch $USR_PROFILE
+    if  ! grep -q "${LOCAL_XDG_OVERRIDE}" $USR_PROFILE; then
+        echo "Adding local xdg path to PATH variable for $USER for the first time! ...you have to logout/login (or source .profile)"
+        cat << EOF >>  $USR_PROFILE
+# ${LOCAL_XDG_OVERRIDE} specific path to override system xdg-open
+$add_to_path
+EOF
+    fi;
+
+    # creating local script handler (local xdg-open)
+    mkdir -p $local_xdg_path
+    local_xdg_open=$local_xdg_path/xdg-open
+    if [ ! -f $local_xdg_open ]; then
+        echo "Adding local xdg-open"
+        cat << EOF > $local_xdg_open
+#!/bin/bash
+if [[ \$1 == ${NC_PROTONAME}://* ]] && [[ -f ${NC_exec_viewer} ]]; then
+    ${NC_exec_viewer} \$1;
+    exit 0;
+elif [[ \$1 == ${TC_PROTONAME}://* ]] && [[ -f ${TC_exec_viewer} ]]; then
+    ${TC_exec_viewer} \$1;
+    exit 0;
+fi;
+
+# Fallback to the original xdg-open (removing local specific path)
+PATH=\`echo \$PATH | sed 's/[^:]\+${LOCAL_XDG_DIR}[^:]\+://'\`
+xdg-open \$1
+EOF
+        chmod 755 $local_xdg_open
+    fi;
+
+fi;
+
+############# Share Applications folder###################
+echo "Checking if applications folder exists..."
+applications_folder_path="$HOME/.local/share/applications"
+
+if [ ! -d $applications_folder_path ];
+then
+	echo "Applications folder doesn't exist...creating one..."
+	mkdir -p $applications_folder_path
+fi
+
+########## PROTONAME.desktop ###################################
+desktopFile="$HOME/.local/share/applications/takectrsxvp.desktop"
+echo "File $pathFile doesn't exists...creating it..."
+touch $desktopFile
+
+echo "Setting content..."
+cat << EOF >  $desktopFile
+#!/usr/bin/env xdg-open
+[Desktop Entry]
+Name=SolarWinds MSP Remote Control
+Exec=$exec_viewer
+Terminal=false
+Type=Application
+MimeType=x-scheme-handler/takectrsxvp;
+EOF
+
+######## mimeapps.list #########################################
+echo "Creating MimeFile..."
+
+mimeFile="$HOME/.local/share/applications/mimeapps.list"
+
+if [ ! -f $mimeFile ];
+then
+	echo "File mimeapps.list not found...creating one..."
+	touch $mimeFile
+fi
+
+echo "Setting mime file content..."
+#look if protocol is already defined
+
+if ! grep -Fq "takectrsxvp" $mimeFile;
+then
+	#not found
+	echo "Adding protocol to file..."
+	if ! grep -Fq "[Default Applications]" $mimeFile
+	then
+		echo "Added Default Applications"
+		echo "[Default Applications]" > $mimeFile
+	fi
+	echo "x-scheme-handler/takectrsxvp=takectrsxvp.desktop" >> $mimeFile
+else
+	echo "Protocol already defined..."
+	if ! grep -Fq "[Default Applications]" $mimeFile
+        then
+                echo "Added Default Applications"
+                echo "[Default Applications]" > $mimeFile
+		echo "x-scheme-handler/takectrsxvp=takectrsxvp.desktop" >> $mimeFile
+        fi
+fi
+
